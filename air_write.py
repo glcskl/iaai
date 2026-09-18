@@ -88,11 +88,11 @@ def new_state(h, w, color, name):
     }
 
 
-def update_hand(state, landmarks, w, h):
+def update_hand(state, landmarks_list, w, h):
     """Обрабатывает одну руку: след, финализация. Возвращает статусную строку."""
     color = state["color"]
     canvas = state["canvas"]
-    hand = landmarks
+    hand = landmarks_list.landmark  # NormalizedLandmarkList -> [NormalizedLandmark]
     up = fingers_up(hand)
     state["up"] = up
     tip = (int(hand[8].x * w), int(hand[8].y * h))
@@ -137,6 +137,72 @@ def update_hand(state, landmarks, w, h):
     return status
 
 
+def process_frame(frame, both, text, hands, mp_hands, mp_draw):
+    """Один кадр: detect руки, нарисовать следы, финализация букв."""
+    h, w = frame.shape[:2]
+    rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+    result = hands.process(rgb)
+
+    for i, state in enumerate(both):
+        state["tip"] = None
+        state["moving"] = False
+        state["up"] = None
+
+    detected = result.multi_hand_landmarks or []
+    drawing_any = False
+    fists_any = False
+    finalizing_msg = None
+
+    for i, landmarks in enumerate(detected):
+        if i >= 2:
+            break
+        mp_draw.draw_landmarks(frame, landmarks, mp_hands.HAND_CONNECTIONS)
+        status = update_hand(both[i], landmarks, w, h)
+        st = both[i]
+        if st["moving"]:
+            drawing_any = True
+        elif st["tip"] is not None and st["up"] is not None and not any(st["up"]):
+            fists_any = True
+        if status and status[0] == "recognized":
+            text.append(status[1])
+        elif status and status[0] == "finalizing":
+            finalizing_msg = (st["name"], status[1])
+
+    # накладываем следы обеих рук
+    for state in both:
+        mask = (state["canvas"] > 0).any(axis=2)
+        frame[mask] = cv2.addWeighted(frame, 0.4, state["canvas"], 0.6, 0)[mask]
+        if state["tip"]:
+            cv2.circle(frame, state["tip"], 10, state["color"], -1)
+
+    # СТАТУС-БАР: ярко показывает, рисуешь ли ты сейчас
+    if finalizing_msg:
+        bar, col = f"  РАСПОЗНАЮ {finalizing_msg[0].upper()}… {finalizing_msg[1]}  ", (255, 255, 0)
+    elif drawing_any:
+        bar, col = "  РИСУЕШЬ ✍  ", (0, 255, 0)
+    elif fists_any:
+        bar, col = "  КУЛАК — не рисуешь  ", (0, 0, 255)
+    elif detected:
+        bar, col = "  ВЫТЯНИ УКАЗАТЕЛЬНЫЙ ПАЛЕЦ  ", (0, 165, 255)
+    else:
+        bar, col = "  НЕТ РУК — покажи ладонь камере  ", (60, 60, 60)
+
+    (tw, th), _ = cv2.getTextSize(bar, cv2.FONT_HERSHEY_SIMPLEX, 1.2, 3)
+    cv2.rectangle(frame, (10, 10), (10 + tw + 20, 10 + th + 20), col, -1)
+    cv2.putText(frame, bar, (20, 10 + th + 13),
+                cv2.FONT_HERSHEY_SIMPLEX, 1.2, (0, 0, 0), 3)
+
+    # текст внизу
+    line = "".join(text)
+    cv2.putText(frame, line, (20, h - 25),
+                cv2.FONT_HERSHEY_SIMPLEX, 1.2, (255, 255, 0), 4)
+    hint = ("Рисуй двумя руками: зелёный — правая, бирюзовый — левая. "
+            "Остановись с пальцем на секунду — распознается.")
+    cv2.putText(frame, hint, (20, h - 2), cv2.FONT_HERSHEY_SIMPLEX,
+                0.5, (255, 255, 255), 1)
+    return None  # в случае успеха
+
+
 def main():
     hands = mp_hands.Hands(
         static_image_mode=False, max_num_hands=2,
@@ -157,6 +223,7 @@ def main():
     drawing_any = False
     fists_any = False
     finalizing_msg = None
+    last_error = None
 
     while True:
         ok, frame = cap.read()
@@ -169,67 +236,19 @@ def main():
             both[0] = new_state(h, w, HAND_COLORS[0], HAND_NAMES[0])
             both[1] = new_state(h, w, HAND_COLORS[1], HAND_NAMES[1])
 
-        rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-        result = hands.process(rgb)
+        try:
+            last_error = process_frame(frame, both, text, hands, mp_hands, mp_draw)
+        except Exception as e:
+            import traceback
+            traceback.print_exc()
+            with open("/tmp/iaai_error.log", "a") as f:
+                f.write(time.strftime("%Y-%m-%d %H:%M:%S") + "\n")
+                traceback.print_exc(file=f)
+            last_error = repr(e)
 
-        for i, state in enumerate(both):
-            state["tip"] = None
-            state["moving"] = False
-            state["up"] = None
-
-        detected = result.multi_hand_landmarks or []
-        drawing_any = False
-        fists_any = False
-        finalizing_msg = None
-
-        # индексируем руки по порядку обнаружения; рисуем следы каждого
-        for i, landmarks in enumerate(detected):
-            if i >= 2:
-                break
-            mp_draw.draw_landmarks(frame, landmarks, mp_hands.HAND_CONNECTIONS)
-            status = update_hand(both[i], landmarks, w, h)
-            st = both[i]
-            if st["moving"]:
-                drawing_any = True
-            elif st["tip"] is not None and st["up"] is not None and not any(st["up"]):
-                fists_any = True
-            if status and status[0] == "recognized":
-                text.append(status[1])
-            elif status and status[0] == "finalizing":
-                finalizing_msg = (st["name"], status[1])
-
-        # накладываем следы обеих рук
-        for state in both:
-            mask = (state["canvas"] > 0).any(axis=2)
-            frame[mask] = cv2.addWeighted(frame, 0.4, state["canvas"], 0.6, 0)[mask]
-            if state["tip"]:
-                cv2.circle(frame, state["tip"], 10, state["color"], -1)
-
-        # СТАТУС-БАР: ярко показывает, рисуешь ли ты сейчас
-        if finalizing_msg:
-            bar, col = f"  РАСПОЗНАЮ {finalizing_msg[0].upper()}… {finalizing_msg[1]}  ", (255, 255, 0)
-        elif drawing_any:
-            bar, col = "  РИСУЕШЬ ✍  ", (0, 255, 0)
-        elif fists_any:
-            bar, col = "  КУЛАК — не рисуешь  ", (0, 0, 255)
-        elif detected:
-            bar, col = "  ВЫТЯНИ УКАЗАТЕЛЬНЫЙ ПАЛЕЦ  ", (0, 165, 255)
-        else:
-            bar, col = "  НЕТ РУК — покажи ладонь камере  ", (60, 60, 60)
-
-        (tw, th), _ = cv2.getTextSize(bar, cv2.FONT_HERSHEY_SIMPLEX, 1.2, 3)
-        cv2.rectangle(frame, (10, 10), (10 + tw + 20, 10 + th + 20), col, -1)
-        cv2.putText(frame, bar, (20, 10 + th + 13),
-                    cv2.FONT_HERSHEY_SIMPLEX, 1.2, (0, 0, 0), 3)
-
-        # текст внизу
-        line = "".join(text)
-        cv2.putText(frame, line, (20, h - 25),
-                    cv2.FONT_HERSHEY_SIMPLEX, 1.2, (255, 255, 0), 4)
-        hint = ("Рисуй двумя руками: зелёный — правая, бирюзовый — левая. "
-                "Остановись с пальцем на секунду — распознается.")
-        cv2.putText(frame, hint, (20, h - 2), cv2.FONT_HERSHEY_SIMPLEX,
-                    0.5, (255, 255, 255), 1)
+        if last_error:
+            cv2.putText(frame, "Ошибка: " + last_error, (20, 90),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 255), 2)
 
         cv2.imshow("iaai — пишем буквы в воздухе", frame)
         key = cv2.waitKey(1) & 0xFF
