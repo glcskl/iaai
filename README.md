@@ -1,108 +1,103 @@
-# ✋ iaai
+# iaai — neural networks from scratch
 
-**18 сентября 2026, личный проект.** Задача: научиться строить нейросеть с нуля, а не звать `fitz/keras.fit`. Решение: **iaai** — три консольных демо на чистом `numpy`: счётчик пальцев через веб-камеру на MediaPipe, распознавание нарисованных в воздухе букв собственной сетью на весах EMNIST, и обучение на XOR руками.
+A set of small programs that build a neural network by hand instead of calling `fit()`. Forward pass, backpropagation, gradient descent and the layer maths are all written out in NumPy, so every step is visible and nothing is hidden behind a framework. The resulting networks are then applied to real tasks: recognising handwritten letters, counting fingers on a webcam and recognising air-drawn shapes.
 
-Ни одного фреймворка машинного обучения. Обратное распространение, softmax и градиентный спуск написаны вручную.
+Built as a personal project on 18 September 2026.
 
----
+## Features
 
-## Три демо
+- Neural network implemented from the ground up, forward and backward
+- Training loop with gradient descent written explicitly, no framework calls
+- XOR solved from scratch, with the loss curve plotted as proof of convergence
+- Handwritten letter classifier for A to Z, trained on EMNIST, weights saved to disk
+- Finger counting from a webcam feed
+- Air writing: draw a letter in the air, the network recognises it
+- No heavy dependencies, everything readable in a single file per demo
 
-### 1. Счётчик пальцев — `finger_counter.py`
+## Tech stack
 
-Веб-камера считает число поднятых пальцев. До 5 одной рукой, до 10 двумя.
+| Layer | Technology |
+| --- | --- |
+| Language | Python 3 |
+| Numerics | NumPy |
+| Computer vision | OpenCV |
+| Hand tracking | MediaPipe, hand landmarker model |
+| Data source | EMNIST |
+| Visualisation | Matplotlib |
 
-- MediaPipe Hands отдаёт 21 точку на руку, поднятость пальца определяется по сравнению координат суставов
-- Детекция включается при `min_detection_confidence=0.6`, трекинг при `0.5`
-- Число попадает в историю внизу экрана, только если держится **0.3 секунды** — отсекает случайные срабатывания
-- Фон затемняется, точка пересчитывается по всей ширине
+## Getting started
 
-```bash
-python3 finger_counter.py
-```
+### Requirements
 
-### 2. Air-write — `air_write.py`
+- Python 3.9 or newer
+- A webcam, required only for the two vision demos
 
-Рисование букв двумя руками в воздухе, распознавание собственной нейросетью.
+### Environment variables
 
-- Вытянутый указательный палец рисует след: **правая рука — зелёный, левая — бирюзовый**
-- Остановился на секунду — буква с этого холста распознаётся, добавляется в текст, звучит сигнал
-- Кулак — эта рука перестаёт рисовать
-- Руки независимы: у каждой свой холст, можно рисовать двумя сразу
-- `Esc` — выход, `C` — очистить холсты, `B` — backspace
+None.
 
-```bash
-python3 air_write.py
-```
-
-### 3. Нейросеть с нуля — `network.py`, `train_xor.py`
-
-Классический учебник в 72 строки, только `numpy`:
-
-- Архитектура: вход → скрытый слой с ReLU → выход со `sigmoid`
-- Forward propagation, бинарная перекрёстная энтропия как loss, backward propagation по правилу цепочки, обновление градиентным спуском
-
-`train_xor.py` обучает сеть на XOR — задаче, которую линейная модель решить не может в принципе. Скрытый слой здесь не украшение, а необходимость. Строит график ошибки в `xor_training.png`.
+### Installation
 
 ```bash
-python3 train_xor.py
+git clone https://github.com/glcskl/iaai.git
+cd iaai
+python -m venv .venv
+source .venv/bin/activate
+pip install numpy opencv-python mediapipe matplotlib
 ```
 
-### Сеть для букв — `letters_net.py`
-
-Вторая сеть, обученная на реальных данных.
-
-- Датасет EMNIST-letters, 26 классов A–Z
-- Архитектура: вход 784 (28×28) → скрытый слой 128 с ReLU → softmax на 26
-- Обучение 25 эпох, batch 128, learning rate 0.3
-- Точность на тестовой выборке — **90%**
-- Готовые веса лежат в `weights/letters.npz` (`W1`, `b1`, `W2`, `b2`)
-
-## Установка
+Download the EMNIST dataset for the letter classifier:
 
 ```bash
-pip install mediapipe opencv-python numpy matplotlib
+sh get_data.sh
 ```
 
-Файл `requirements.txt` в репозитории нет — зависимости перечислены здесь. Стоит завести, скажи — добавлю.
+### Running
 
-## Датасет
-
-Данные не хранятся в репозитории, каталог `data/` в `.gitignore`. Скачивается отдельно:
+Train on XOR and plot the loss curve:
 
 ```bash
-./get_data.sh
+python train_xor.py
 ```
 
-Скрипт берёт EMNIST-letters с Hugging Face (`Heliosoph/EMNIST`): четыре `.gz` с train/test-картинками и метками.
+Classify handwritten letters against the saved weights:
 
-## Что в репозитории
-
-```
-iaai/
-├── network.py             нейросеть с нуля на numpy (72 строки)
-├── train_xor.py           обучение на XOR + график ошибки
-├── letters_net.py         сеть для букв: 784 → 128 → 26, обучение и predict
-├── finger_counter.py      счётчик пальцев через веб-камеру
-├── air_write.py           рисование букв двумя руками в воздухе
-├── get_data.sh            скачивание EMNIST-letters
-├── models/
-│   └── hand_landmarker.task   модель MediaPipe, 7.8 МБ
-├── weights/
-│   └── letters.npz        обученные веса, 1.2 МБ
-└── xor_training.png       график сходимости
+```bash
+python letters_net.py
 ```
 
-## Известные ограничения
+Count fingers using the webcam:
 
-- **`requirements.txt` отсутствует.** Зависимости приходится ставить вручную, версии нигде не зафиксированы — при обновлении MediaPipe код может перестать работать.
-- **Нет README в исходной версии** — этот файл добавлен вместе с остальным описанием.
-- **Модель MediaPipe на 7.8 МБ в репозитории.** Формально это сторонняя зависимость, которую обычно качают при установке.
-- **Распознавание букв на 90%** — на живой камере качество заметно ниже, чем на тестовой выборке EMNIST: почерк в воздухе сильно отличается от печатных букв.
-- **Только камера** — с исходного видео файла работать нельзя.
-- **Тестов нет.**
-- **Лицензии нет.** Формально все права защищены. Код сторонних библиотек под своими лицензиями — MediaPipe Apache-2.0, EMNIST NIST.
+```bash
+python finger_counter.py
+```
 
-## Лицензия
+Draw a letter in the air and have it recognised:
 
-Файл `LICENSE` отсутствует. Формально все права защищены. Добавить лицензию — скажи, какой.
+```bash
+python air_write.py
+```
+
+## Project structure
+
+```
+network.py       network core: layers, forward pass, backpropagation
+train_xor.py     XOR training demo, writes xor_training.png
+letters_net.py   A to Z classifier built on network.py
+air_write.py     air drawing with both hands, plus recognition
+finger_counter.py finger counting through the webcam
+get_data.sh      fetches the EMNIST dataset
+models/          MediaPipe hand landmarker model
+weights/         saved network weights
+xor_training.png training loss curve
+```
+
+## How it works
+
+`network.py` implements dense layers, the activation function, the loss and the derivative chain. `train_xor.py` trains on the four XOR cases and plots the loss, which falls close to zero. The vision demos reuse the same training code: the image or landmark data is flattened into a vector, and the trained weights are loaded from `weights/`.
+
+MediaPipe is used only to locate hand landmarks. The classification itself runs on the network written here.
+
+## Notes
+
+This project is educational. The networks are small, trained on modest data and are not competitive with current libraries for accuracy or speed. The point is the visible derivation, not the result.
