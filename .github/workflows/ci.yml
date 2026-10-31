@@ -23,3 +23,9 @@ jobs:
 
       - name: Bytecode compile (smoke)
         run: python -m compileall -q .
+
+      - name: Install test dependencies
+        run: pip install numpy pytest
+
+      - name: Pytest
+        run: python -m pytest -q
