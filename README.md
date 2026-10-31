@@ -89,8 +89,18 @@ finger_counter.py finger counting through the webcam
 get_data.sh      fetches the EMNIST dataset
 models/          MediaPipe hand landmarker model
 weights/         saved network weights
+tests/           pytest suite for the network and the letter classifier
 xor_training.png training loss curve
 ```
+
+## Tests
+
+```bash
+pip install numpy pytest
+python -m pytest -q
+```
+
+`tests/test_network.py` compares the analytic gradients with central differences, trains XOR to convergence and checks the backpropagation shapes. `tests/test_letters.py` covers the softmax stability and the weight file layout. `.github/workflows/ci.yml` runs ruff and the suite on every push.
 
 ## How it works
 
